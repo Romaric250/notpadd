@@ -1,8 +1,6 @@
-
 import axios from 'axios';
 import crypto from 'crypto';
-import { db } from '@workspace/db';
-
+import { db, PlanType } from '@workspace/db';
 
 class FlutterwaveService {
   private secretKey: string;
@@ -13,16 +11,16 @@ class FlutterwaveService {
     this.publicKey = process.env.FLUTTERWAVE_PUBLIC_KEY || '';
   }
 
-  async localInitiateCharge(phone: string, amount: number, userId: string, email: string) {
+  async localInitiateCharge(plan:PlanType, phone: string, amountExpected: number, teamId: string, userId: string, email: string) {
     const txRef = crypto.randomBytes(16).toString('hex');
 
     const data = {
-      amount,
+      amount: amountExpected,
       tx_ref: txRef,
       currency: 'XAF',
       country: 'CM',
-      email: email,
-      phone_number: phone
+      email,
+      phone_number: phone,
     };
 
     const headers = {
@@ -43,27 +41,32 @@ class FlutterwaveService {
 
       console.log('Charge initiated successfully:', response.data);
 
-      // Save the transaction in the database
+
+      const amount = this.GetPriceforPlan(plan)
+
       await db.initiatePayment.create({
         data: {
-          txRef,
-          amount,
+          amountExpected:10,
+          currency: 'XAF',
+          billingCycle: 'monthly',
           status: 'pending',
+          plan:plan,
+          teamId,
           userId,
+          flutterwaveRef: txRef,
         },
       });
 
       return {
         message: 'Payment request sent successfully',
-        success:true,
-        data:{
+        success: true,
+        data: {
           tx_ref: txRef,
-          transactionId:response.data.data.id,
+          transactionId: response.data.data.id,
           amount: response.data.data.amount,
           currency: response.data.data.currency,
-          status:response.data.data.status
-        }
-        
+          status: response.data.data.status,
+        },
       };
     } catch (error: any) {
       console.error('Error initiating charge:', error.response?.data || error.message);
@@ -74,31 +77,29 @@ class FlutterwaveService {
   async Paymentwebhook(data: any) {
     const { txRef, status, amount } = data;
 
-    // Verify the transaction
     const transaction = await db.initiatePayment.findUnique({
-      where: { txRef },
+      where: { flutterwaveRef: txRef },
     });
 
     if (!transaction) {
       throw new Error('Transaction not found');
     }
 
-    // Update the transaction status
     await db.initiatePayment.update({
-      where: { txRef },
+      where: { id: transaction.id },
       data: { status },
     });
 
     if (status === 'successful') {
-      // Handle successful transaction
-      await db.subscriptions.create({
+      await db.subscription.create({
         data: {
-          tx_ref: txRef,
-          amountpaid: amount,
-          userId: transaction.userId,
-          lastpaymentdate: new Date(),
-          nextpaymentdate: new Date(new Date().setMonth(new Date().getMonth() + 1)),
-          paidcurrentmonth: true,
+          plan: 'Basic',
+          price: amount,
+          currency: transaction.currency,
+          interval: 'monthly',
+          status: 'active',
+          teamId: transaction.teamId,
+          startDate: new Date(),
         },
       });
     }
@@ -111,7 +112,7 @@ class FlutterwaveService {
     expectedAmount: number,
     expectedCurrency: string,
     userId: string,
-    txt_ref: string
+    txRef: string
   ) {
     try {
       const response = await axios.get(
@@ -124,52 +125,44 @@ class FlutterwaveService {
           },
         }
       );
-  
-      console.log("response:", response.data.status, response.data.data.amount);
-  
+
       if (
         response.data.status === 'success' &&
-        response.data.data.tx_ref === txt_ref &&
+        response.data.data.tx_ref === txRef &&
         response.data.data.currency === expectedCurrency &&
         response.data.data.amount === expectedAmount
       ) {
         const initiatedPayment = await db.initiatePayment.findUnique({
-          where: {
-            txRef: response.data.data.tx_ref,
-            userId: userId,
-          },
+          where: { flutterwaveRef: txRef },
         });
-  
+
         if (!initiatedPayment) {
           throw new Error('Initiated payment not found in the database.');
         }
-  
-       
+
         const createdAt = new Date(initiatedPayment.createdAt);
         const currentTime = new Date();
         const timeDifference = (currentTime.getTime() - createdAt.getTime()) / 1000;
-  
+
         if (timeDifference > 60) {
           await db.initiatePayment.update({
             where: { id: initiatedPayment.id },
             data: { status: 'failed' },
           });
-  
+
           return {
-            message: "Transaction verification failed due to timeout.",
+            message: 'Transaction verification failed due to timeout.',
             success: true,
             data: {
-              transactionId: response.data.data.id,
-             ...initiatedPayment,
+              ...initiatedPayment,
             },
           };
         }
-  
+
         return {
-          message: "Transaction Verified",
+          message: 'Transaction Verified',
           success: true,
           data: {
-            transactionId: response.data.data.id,
             ...initiatedPayment,
           },
         };
@@ -182,81 +175,84 @@ class FlutterwaveService {
     }
   }
 
-  async CheckoutWithFlutter(userdata:{userId:string,email:string }, templateId:string){
-
-
+  async CheckoutWithFlutter(userdata: { userId: string; email: string }, teamId: string) {
     const headers = {
-        Authorization: `Bearer ${process.env.SECRET_KEY}`,
-        "Content-Type": "application/json"
-    }
+      Authorization: `Bearer ${this.secretKey}`,
+      'Content-Type': 'application/json',
+    };
 
-    const txt_refs = crypto.randomUUID().toString()
+    const txRef = crypto.randomUUID().toString();
 
     try {
+      const paymentRequest = await axios.post(
+        'https://api.flutterwave.com/v3/payments',
+        {
+          tx_ref: txRef,
+          amount: 9.99,
+          currency: 'USD',
+          redirect_url: 'https://example_company.com/success',
+          customer: {
+            email: userdata.email,
+            name: 'Notpadd Payment',
+          },
+          customizations: {
+            title: 'Notpadd Payment',
+          },
+        },
+        { headers }
+      );
 
-
-         const paymentrequest = await axios.post(
-    'https://api.flutterwave.com/v3/payments',
-    {
-      tx_ref: txt_refs,
-      amount: 29,
-      currency: 'AUD',
-      redirect_url: 'https://example_company.com/success',
-      customer: {
-        email: 'skaleway@gmail.com',
-        name: 'Notpadd Payment',
-        phonenumber: '09012345678'
-      },
-      customizations: {
-        title: 'Notpadd Payment',
+      if (paymentRequest.status === 200) {
+        await db.initiatePayment.create({
+          data: {
+            userId: userdata.userId,
+            teamId,
+            plan: 'Basic',
+            billingCycle: 'monthly',
+            amountExpected: 9.99,
+            currency: 'USD',
+            status: 'pending',
+            flutterwaveRef: txRef,
+          },
+        });
       }
-    },
-    {
-      headers:headers
+
+      return {
+        data: paymentRequest.data,
+        status: true,
+      };
+    } catch (error: any) {
+      console.error(error);
+      return {
+        status: false,
+        data: null,
+      };
     }
-  );
-   
-       if (paymentrequest.status === 200){
-        const createinitiatedpayement = await db.initiatedRequest.create({
-            data:{
-                userId:userdata.userId,
-                templateId:templateId,
-                txt_ref:txt_refs,
+  }
 
-            }
-        })
 
-        
-       }
 
-  return {
-          data:paymentrequest,
-          status:false
-        
-        }
-       
+  async GetPriceforPlan(plan:PlanType){
+
+    let amount = 0;
+
+
+    if (plan === 'Free'){
+      return amount = 0
     }
-
-    catch (error: any){
-        console.log(error)
-        return {
-          status:false,
-          data: null
-        }
-
-
+    if(plan === 'Basic'){
+      return  amount = 10
+    }
+    if(plan === 'Premium'){
+      return amount= 500
     }
 
+    return 0
 
-}
-
-
-
+  }
 
 
 
-
-  
 }
 
 export default new FlutterwaveService();
