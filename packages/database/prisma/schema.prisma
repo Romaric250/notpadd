@@ -34,6 +34,13 @@ enum AccountType {
   Enterprise
 }
 
+enum PlanType {
+  Free
+  Basic
+  Premium
+}
+
+
 model User {
   id                          String                        @id
   createdAt                   DateTime                      @default(now())
@@ -63,6 +70,11 @@ model Team {
   craetedAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   membersLifeTimeCount Int      @default(0)
+   subscription               Subscription?    @relation(fields: [subscriptionId], references: [id])
+  subscriptionId             String? @unique
+  
+  currentPlan                PlanType         @default(Free)
+  intitiateCharge           InitiateCharge[]
 
   Space    Space[]
   Invite   Invite[]
@@ -139,14 +151,43 @@ model AuthorizedAccessCredentials {
 }
 
 model Subscription {
-  id        String   @id @default(cuid())
-  plan      String
-  price     Float
-  currency  String
-  interval  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String    @id @default(cuid())
+  plan         PlanType
+  price        Float
+  currency     String
+  interval     String     // "monthly" or "yearly"
+  status       String     // "active", "canceled", etc.
+  team         Team?      @relation
+  teamId       String?    @unique
+  startDate    DateTime   @default(now()) 
+  initiateCharge InitiateCharge[]
+  endDate      DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  
 }
+
+model InitiateCharge {
+  id              String    @id @default(cuid())
+  teamId          String
+  team            Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId          String?
+
+  plan            PlanType
+  amountExpected  Float
+  currency        String    @default("USD")
+  billingCycle    String    
+  status          String    @default("pending") 
+  flutterwaveRef  String?   @unique              
+  transactionId   String?   @unique              
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  Subscription    Subscription?  @relation(fields: [subscriptionId], references: [id])
+  subscriptionId  String?
+}
+
 
 model Invite {
   id        String   @id @default(cuid())
@@ -198,3 +239,7 @@ model Activity {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+
+
+// basic == 9.99
