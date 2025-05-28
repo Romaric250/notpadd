@@ -74,7 +74,7 @@ model Team {
   subscriptionId             String? @unique
   
   currentPlan                PlanType         @default(Free)
-  intitiateCharge           InitiateCharge[]
+  intitiateCharge           InitiatePayment[]
 
   Space    Space[]
   Invite   Invite[]
@@ -160,14 +160,14 @@ model Subscription {
   team         Team?      @relation
   teamId       String?    @unique
   startDate    DateTime   @default(now()) 
-  initiateCharge InitiateCharge[]
+  initiateCharge InitiatePayment[]
   endDate      DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   
 }
 
-model InitiateCharge {
+model InitiatePayment {
   id              String    @id @default(cuid())
   teamId          String
   team            Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)

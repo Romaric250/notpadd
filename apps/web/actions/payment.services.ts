@@ -13,7 +13,7 @@ class FlutterwaveService {
     this.publicKey = process.env.FLUTTERWAVE_PUBLIC_KEY || '';
   }
 
-  async initiateCharge(phone: string, amount: number, userId: string, email: string) {
+  async localInitiateCharge(phone: string, amount: number, userId: string, email: string) {
     const txRef = crypto.randomBytes(16).toString('hex');
 
     const data = {
@@ -71,7 +71,7 @@ class FlutterwaveService {
     }
   }
 
-  async handleWebhook(data: any) {
+  async Paymentwebhook(data: any) {
     const { txRef, status, amount } = data;
 
     // Verify the transaction
@@ -181,6 +181,81 @@ class FlutterwaveService {
       throw error;
     }
   }
+
+  async CheckoutWithFlutter(userdata:{userId:string,email:string }, templateId:string){
+
+
+    const headers = {
+        Authorization: `Bearer ${process.env.SECRET_KEY}`,
+        "Content-Type": "application/json"
+    }
+
+    const txt_refs = crypto.randomUUID().toString()
+
+    try {
+
+
+         const paymentrequest = await axios.post(
+    'https://api.flutterwave.com/v3/payments',
+    {
+      tx_ref: txt_refs,
+      amount: 29,
+      currency: 'AUD',
+      redirect_url: 'https://example_company.com/success',
+      customer: {
+        email: 'skaleway@gmail.com',
+        name: 'Notpadd Payment',
+        phonenumber: '09012345678'
+      },
+      customizations: {
+        title: 'Notpadd Payment',
+      }
+    },
+    {
+      headers:headers
+    }
+  );
+   
+       if (paymentrequest.status === 200){
+        const createinitiatedpayement = await db.initiatedRequest.create({
+            data:{
+                userId:userdata.userId,
+                templateId:templateId,
+                txt_ref:txt_refs,
+
+            }
+        })
+
+        
+       }
+
+  return {
+          data:paymentrequest,
+          status:false
+        
+        }
+       
+    }
+
+    catch (error: any){
+        console.log(error)
+        return {
+          status:false,
+          data: null
+        }
+
+
+    }
+
+
+}
+
+
+
+
+
+
+
   
 }
 
