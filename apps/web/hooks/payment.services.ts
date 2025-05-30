@@ -77,6 +77,8 @@ class FlutterwaveService {
   async Paymentwebhook(data: any) {
     const { txRef, status, amount } = data;
 
+    console.log('Webhook data received:', data);
+
     const transaction = await db.initiatePayment.findUnique({
       where: { flutterwaveRef: txRef },
     });
@@ -190,7 +192,7 @@ class FlutterwaveService {
           tx_ref: txRef,
           amount: 9.99,
           currency: 'USD',
-          redirect_url: 'https://example_company.com/success',
+          redirect_url: 'https://notpadd-web.vercel.app/',
           customer: {
             email: userdata.email,
             name: 'Notpadd Payment',
@@ -199,8 +201,18 @@ class FlutterwaveService {
             title: 'Notpadd Payment',
           },
         },
-        { headers }
+
+         {
+      headers: {
+        Authorization: `Bearer FLWSECK_TEST-7772e1621ceb1eebc6e7b5134fc0b9f7-X`,
+        'Content-Type': 'application/json'
+      }
+    }
+        
       );
+
+      // console.log('Payment request response:', paymentRequest);
+      // console.log("secret and public key", this.secretKey, this.publicKey);
 
       if (paymentRequest.status === 200) {
         await db.initiatePayment.create({
@@ -225,7 +237,7 @@ class FlutterwaveService {
       console.error(error);
       return {
         status: false,
-        data: null,
+        data: "An error occurred while processing the payment request.",
       };
     }
   }
