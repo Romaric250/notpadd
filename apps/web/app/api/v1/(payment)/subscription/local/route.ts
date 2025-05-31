@@ -3,9 +3,15 @@ import FlutterwaveService from '@/hooks/payment.services';
 import { getCurrentUser } from '@/lib/current-user';
 
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const { plan, phone, amount, teamId, email } = await req.json();
+    // const { plan, phone, amount, teamId, email } = await req.json();
+
+    const plan = 'Monthly'; // Default plan, can be changed based on your logic
+    const phone = '237650650516'; // Example phone number, should be provided by the user
+    const amount = 1000; // Example amount, should be determined based on the plan
+    const teamId = 'cmbar3x8d00008oh2ak14fv7z'; // Example team ID, should be provided by the user
+    const email = 'lonfonyuyromaric@gmail.com'
 
     const user = await getCurrentUser()
   
@@ -32,3 +38,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+
+

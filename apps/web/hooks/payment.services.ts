@@ -1,6 +1,14 @@
 import axios from 'axios';
 import crypto from 'crypto';
 import { db, PlanType } from '@workspace/db';
+import { addDays, isAfter } from 'date-fns';
+
+
+const PLAN_DURATIONS: Record<string, number> = {
+  Free: Infinity,
+  Monthly: 30,
+  Yearly: 365,
+};
 
 class FlutterwaveService {
   private secretKey: string;
@@ -10,6 +18,101 @@ class FlutterwaveService {
     this.secretKey = process.env.FLUTTERWAVE_SECRET_KEY || '';
     this.publicKey = process.env.FLUTTERWAVE_PUBLIC_KEY || '';
   }
+
+
+
+  async checkcurrentSubscription(teamId: string) {
+    try {
+      const subscription = await db.subscription.findFirst({
+        where: {
+          teamId,
+          status: 'active',
+        },
+      });
+      if (!subscription) {
+        return {
+          message: 'No active subscription found for this team.',
+          success: false,
+        };
+      }
+      return {
+        message: 'Active subscription found.',
+        success: true,
+        data: subscription,
+      };
+    } catch (error: any) {
+      console.error('Error checking current subscription:', error.message);
+      return {
+        message: 'Error checking current subscription',
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  async getSubscriptionInfo(teamId: string) {
+    try {
+      const subscription = await db.subscription.findFirst({
+        where: {
+          teamId,
+          status: 'active',
+        },
+        orderBy: {
+          startDate: 'desc',
+        },
+      });
+
+      if (!subscription) {
+        return {
+          status: 'inactive',
+          expiryDate: undefined,
+          plan: 'Free',
+        };
+      }
+
+      const duration = PLAN_DURATIONS[subscription.plan];
+
+      if (duration === undefined) {
+        console.warn(`Unknown plan '${subscription.plan}' for team ${teamId}`);
+        return {
+          status: 'inactive',
+          expiryDate: undefined,
+          plan: 'Free',
+        };
+      }
+
+      if (duration === Infinity) {
+        return {
+          status: 'active',
+          expiryDate: undefined,
+          plan: subscription.plan,
+        };
+      }
+
+      const expiryDate = addDays(new Date(subscription.startDate), duration);
+
+      // If expired but not updated, return inactive
+      if (isAfter(new Date(), expiryDate)) {
+        return {
+          status: 'inactive',
+          expiryDate,
+          plan: subscription.plan,
+        };
+      }
+
+      return {
+        status: 'active',
+        expiryDate,
+        plan: subscription.plan,
+      };
+    } catch (error: any) {
+      console.error('Error fetching subscription info:', error);
+      throw new Error('Failed to fetch subscription info');
+    }
+  }
+
+
+
 
   async localInitiateCharge(plan:PlanType, phone: string, amountExpected: number, teamId: string, userId: string, email: string) {
     const txRef = crypto.randomBytes(16).toString('hex');
@@ -24,7 +127,7 @@ class FlutterwaveService {
     };
 
     const headers = {
-      Authorization: `Bearer ${this.secretKey}`,
+      Authorization: `Bearer FLWSECK_TEST-7772e1621ceb1eebc6e7b5134fc0b9f7-X`,
       'Content-Type': 'application/json',
     };
 
@@ -42,11 +145,9 @@ class FlutterwaveService {
       console.log('Charge initiated successfully:', response.data);
 
 
-      const amount = this.GetPriceforPlan(plan)
-
       await db.initiatePayment.create({
         data: {
-          amountExpected:10,
+          amountExpected:1000,
           currency: 'XAF',
           billingCycle: 'monthly',
           status: 'pending',
@@ -74,40 +175,185 @@ class FlutterwaveService {
     }
   }
 
-  async Paymentwebhook(data: any) {
-    const { txRef, status, amount } = data;
+// async Paymentwebhook(payload: any) {
+//     const { event, data } = payload;
 
-    console.log('Webhook data received:', data);
+//     if (event !== 'charge.completed' || !data?.tx_ref) {
+//       return { success: false, message: 'Invalid event or missing tx_ref' };
+//     }
 
-    const transaction = await db.initiatePayment.findUnique({
-      where: { flutterwaveRef: txRef },
-    });
+//     const txRef = data.tx_ref;
+//     const status = data.status;
+//     const amount = data.amount;
+//     const currency = data.currency;
+//     const transactionId = data.id;
 
-    if (!transaction) {
-      throw new Error('Transaction not found');
+//     // Find the matching InitiatePayment
+//     const initiatedPay = await db.initiatePayment.findUnique({
+//       where: {
+//         flutterwaveRef: txRef,
+//       },
+//     });
+
+//     if (!initiatedPay) {
+//       return { success: false, message: 'No matching payment found' };
+//     }
+
+
+
+//     if (status === 'successful') {
+
+//       const subs = await db.subscription.findFirst({
+//         where: {
+//           teamId: initiatedPay.teamId,
+//           status: 'active',
+//         },
+//       })
+
+
+
+//       // Update InitiatePayment
+//       await db.initiatePayment.update({
+//         where: { id: initiatedPay.id },
+//         data: {
+//           status: 'completed',
+//           transactionId: String(transactionId),
+//           currency,
+//           amountExpected: amount,
+//         },
+//       });
+
+//       // Optionally: Activate subscription or update team
+//       if (initiatedPay.subscriptionId) {
+//         await db.subscription.update({
+//           where: { id: initiatedPay.subscriptionId },
+//           data: {
+//             status: 'active',
+//             startDate: new Date(),
+//             endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // +30 days
+//           },
+//         });
+//       }
+
+//       return {
+//         success: true,
+//         message: 'Payment successful and updated',
+//         data: {
+//           tx_ref: txRef,
+//           transactionId,
+//           amount,
+//           currency,
+//           status,
+//         },
+//       };
+//     }
+
+//     return {
+//       success: false,
+//       message: 'Payment was not successful',
+//     };
+//   }
+
+
+async Paymentwebhook(payload: any) {
+  const { event, data } = payload;
+
+  if (event !== 'charge.completed' || !data?.tx_ref) {
+    return { success: false, message: 'Invalid event or missing tx_ref' };
+  }
+
+  const txRef = data.tx_ref;
+  const status = data.status;
+  const amount = data.amount;
+  const currency = data.currency;
+  const transactionId = data.id;
+
+  const initiatedPay = await db.initiatePayment.findUnique({
+    where: {
+      flutterwaveRef: txRef,
+    },
+  });
+
+  if (!initiatedPay) {
+    return { success: false, message: 'No matching payment found' };
+  }
+
+  if (status === 'successful') {
+    const now = new Date();
+    const billingCycle = initiatedPay.billingCycle || 'monthly';
+
+    // Determine subscription duration
+    let durationMs = 30 * 24 * 60 * 60 * 1000; // Default: 30 days
+    if (billingCycle === 'yearly') {
+      durationMs = 365 * 24 * 60 * 60 * 1000;
     }
 
+    const endDate = new Date(now.getTime() + durationMs);
+
+    // Update the initiatePayment record
     await db.initiatePayment.update({
-      where: { id: transaction.id },
-      data: { status },
+      where: { id: initiatedPay.id },
+      data: {
+        status: 'completed',
+        transactionId: String(transactionId),
+        currency,
+        amountExpected: amount,
+      },
     });
 
-    if (status === 'successful') {
-      await db.subscription.create({
+    // Check if an active subscription exists
+    const existingSubscription = await db.subscription.findFirst({
+      where: {
+        teamId: initiatedPay.teamId,
+        status: 'active',
+      },
+    });
+
+    if (!existingSubscription) {
+      // Create new subscription
+     await db.subscription.create({
+  data: {
+    teamId: initiatedPay.teamId,
+    plan: initiatedPay.plan,
+    interval: billingCycle, // <-- Add this line
+    status: 'active',
+    price: amount,
+    currency,
+    startDate: now,
+    endDate,
+  },
+});
+
+    } else {
+      // Update existing one (optional: extend time or skip)
+      await db.subscription.update({
+        where: { id: existingSubscription.id },
         data: {
-          plan: 'Basic',
-          price: amount,
-          currency: transaction.currency,
-          interval: 'monthly',
-          status: 'active',
-          teamId: transaction.teamId,
-          startDate: new Date(),
+          endDate, // Or optionally extend it instead of resetting
+          startDate: now,
         },
       });
     }
 
-    return { message: 'Webhook handled successfully' };
+    return {
+      success: true,
+      message: 'Payment successful and subscription updated/created',
+      data: {
+        tx_ref: txRef,
+        transactionId,
+        amount,
+        currency,
+        status,
+      },
+    };
   }
+
+  return {
+    success: false,
+    message: 'Payment was not successful',
+  };
+}
+
 
   async verifyTransaction(
     transactionId: string,
@@ -219,7 +465,7 @@ class FlutterwaveService {
           data: {
             userId: userdata.userId,
             teamId,
-            plan: 'Basic',
+            plan: 'Monthly',
             billingCycle: 'monthly',
             amountExpected: 9.99,
             currency: 'USD',
@@ -242,29 +488,55 @@ class FlutterwaveService {
     }
   }
 
+    async validateAndUpdateuserSubs() {
+  try {
+    const subscriptions = await db.subscription.findMany();
 
+    const updates = [];
 
-  async GetPriceforPlan(plan:PlanType){
+    for (const sub of subscriptions) {
+      const duration = PLAN_DURATIONS[sub.plan];
 
-    let amount = 0;
+      if (duration === undefined) {
+        console.warn(`Unknown plan '${sub.plan}' for subscription ${sub.id}`);
+        continue;
+      }
 
+      if (duration === Infinity) continue; // Free plan never expires
 
-    if (plan === 'Free'){
-      return amount = 0
+      const expiryDate = addDays(new Date(sub.startDate), duration);
+
+      if (isAfter(new Date(), expiryDate) && sub.status === 'active') {
+        updates.push(
+          db.subscription.update({
+            where: { id: sub.id },
+            data: { status: 'inactive' },
+          })
+        );
+      }
     }
-    if(plan === 'Basic'){
-      return  amount = 10
-    }
-    if(plan === 'Premium'){
-      return amount= 500
-    }
 
-    return 0
+    await Promise.all(updates);
 
+    return {
+      message: 'Subscription check complete.',
+      totalChecked: subscriptions.length,
+      expiredUpdated: updates.length,
+    }
+  } catch (error:any) {
+    console.error('Error fixing subscriptions:', error);
+    return {
+      message: 'Internal server error',
+      success: false,
+      error: error.message,
+      };
   }
 
 
-
+}
 }
 
 export default new FlutterwaveService();
+
+
+

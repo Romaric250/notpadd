@@ -36,8 +36,8 @@ enum AccountType {
 
 enum PlanType {
   Free
-  Basic
-  Premium
+  Monthly
+  Yearly
 }
 
 
@@ -96,7 +96,7 @@ model Member {
 model Space {
   id                          String                        @id
   name                        String
-  description                 String?
+description                 String?
   teamId                      String
   team                        Team                          @relation(fields: [teamId], references: [id])
   createdAt                   DateTime                      @default(now())
@@ -152,7 +152,7 @@ model AuthorizedAccessCredentials {
 
 model Subscription {
   id           String    @id @default(cuid())
-  plan         PlanType
+  plan         PlanType @default(Free)
   price        Float
   currency     String
   interval     String     // "monthly" or "yearly"
@@ -160,7 +160,6 @@ model Subscription {
   team         Team?      @relation
   teamId       String?    @unique
   startDate    DateTime   @default(now()) 
-  initiateCharge InitiatePayment[]
   endDate      DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -183,9 +182,13 @@ model InitiatePayment {
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
 
-  Subscription    Subscription?  @relation(fields: [subscriptionId], references: [id])
-  subscriptionId  String?
+model PlanPrices{
+  id          String   @id @default(cuid())
+  monthlyPrice Float
+  yearlyPrice  Float
+ 
 }
 
 
